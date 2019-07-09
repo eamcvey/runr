@@ -1,0 +1,58 @@
+---
+title: "Race Results"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(dplyr)
+library(DT)
+library(highcharter)
+
+attach('output/spartan_processed.rda')
+```
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### Pace by Gender
+
+```{r}
+results_df %>%
+  filter(pct_gender <= 95) %>%
+  mutate(pct_gender = round(pct_gender, 1),
+         pace = round(pace, 1)) %>%
+  rename(`Percentile within gender` = pct_gender,
+         Pace = pace,
+         Gender = gender) %>%
+  hchart("line", hcaes(x = Pace, y = `Percentile within gender`, group = Gender))
+```
+
+### Gender Gap
+
+```{r}
+gap_wide_df %>%
+  filter(pct_gender <= 80) %>%
+   rename(`Percentile within gender` = pct_gender,
+         `Gender Gap (min/mile)` = gap_gender) %>% 
+  hchart("line", hcaes(x = `Percentile within gender`, y = `Gender Gap (min/mile)`))
+```
+
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+
+### Results
+
+```{r}
+results_df %>%
+  mutate(finish_time = round(finish_time, 1),
+         pace = round(pace, 1)) %>%
+  DT::datatable(rownames = FALSE)
+```
+
+
+

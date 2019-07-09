@@ -1,0 +1,180 @@
+---
+title: "Race Results Analysis"
+author: "Elaine McVey"
+date: "January 14, 2016"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+
+library(knitr)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+knit_hooks$set(inline = function(x) {
+  if (is.numeric(x)) {
+    prettyNum(x, big.mark = ",")
+  } else {
+    x
+  }
+})
+
+```
+
+This analysis summarizes and compares race results by age and gender.
+
+
+## Raw Data
+
+The raw data used in this analysis is a set of individual race results including finish time, pace, age, and gender for each athlete.  Bib number is the unique identifier, and event name is a free text description of the race.
+
+```{r read_data}
+
+# Load the required packages
+library(readr)
+
+# Read in the raw race results
+results_df <- read_csv('output/results_spartan_sc_sat_beast_open.csv')
+
+# Show the top of the dataframe
+kable(head(results_df))
+
+```
+
+## Calculations
+
+To compare across age and gender, ranks and percentiles within categories and age groups must be calculated.
+
+```{r calc_vars, message = FALSE}
+
+# Load the required packages
+library(dplyr)
+
+# Source the age group assignment function
+source('R/group_age.R')
+
+# Create the age groups
+results_df <- results_df %>%
+  mutate(age_cat = factor(group_age(age), 
+                          levels = c('under 18', '18-24', '25-29', '30-34', '35-39', '40-44', 
+                                     '45-49', '50-54', '55-59', '60-64', '65 and up')), # categorize age
+         age_group = paste0(gender, '_', age_cat)) %>% # combine age category with gender for age groups
+  filter(!is.na(age_cat)) 
+
+# Calculate ranks within subgroups
+results_df <- results_df %>%
+  arrange(finish_time) %>%
+  mutate(rank_overall = 1:n()) %>%
+  group_by(age_group) %>%
+  mutate(rank_agegrp = 1:n()) %>%
+  group_by(gender) %>%
+  mutate(rank_gender = 1:n()) %>%
+  ungroup()
+    
+# Calculate percentages within subgroups
+results_df <- results_df %>%
+  arrange(finish_time) %>%
+  mutate(pct_overall = round(100 * rank_overall/max(rank_overall), 2)) %>%
+  group_by(age_group) %>%
+  mutate(pct_agegrp = round(100 * rank_agegrp/max(rank_agegrp), 2)) %>%
+  group_by(gender) %>%
+  mutate(pct_gender = round(100 * rank_gender/max(rank_gender), 2)) %>%
+  ungroup %>%
+  arrange(finish_time)
+
+# Show the top of the dataframe
+kable(head(results_df %>% select(-event_name, -bib_number)))
+
+```
+
+## Graphical Analysis
+
+### Who participated
+
+A total of `r sum(results_df$gender == 'F')` women and `r sum(results_df$gender == 'M')` men participated in the `r unique(results_df$event_name)`.
+
+```{r demo_hist}
+
+library(ggplot2)
+
+# Count of participants by age group
+results_df %>%
+  ggplot(aes(x = age_cat)) +
+  geom_bar() +
+  theme_bw() +
+  facet_wrap( ~ gender) +
+  xlab('') +
+  theme(axis.text.x = element_text(angle = 90))
+  
+```
+
+### Pace by gender
+
+```{r cdist_pace_gender, message = FALSE}
+
+results_df %>%
+  filter(pct_gender <= 95) %>%
+  ggplot(aes(x = pace, y = pct_gender, color = gender)) + 
+  geom_line() +
+  theme_bw() +
+  xlab('Pace (min/mile)') + ylab('Percentile within gender') +
+  ggtitle('Cumulative Pace Distribution by Gender') 
+
+```
+
+### Pace by age 
+
+```{r scatter_pace_age, message = FALSE}
+
+results_df %>%
+  filter(pct_agegrp <= 95) %>%
+  ggplot(aes(x = age, y = pace, color = gender)) + 
+  geom_point(alpha = .5) +
+  geom_smooth() +
+  facet_wrap( ~ gender, ncol = 1) +
+  theme_bw() +
+  ylab('Pace (min/mile)') + xlab('Age') 
+
+```
+
+### Gender gap
+
+Adjusting for gender, how do athletes in the same performance percentiles of their gender compare on pace?  Is the gender gap consistent across the performance range?
+
+```{r gender_gap, message = FALSE, warning = FALSE}
+
+library(tidyr)
+
+# Calculate the mean pace within each percentile of gender
+gap_df <- results_df %>%
+  mutate(pct_gender = ceiling(pct_gender)) %>%
+  group_by(gender, pct_gender) %>%
+  summarize(mean_pace = mean(pace))
+
+# Reorganize to calculate the difference in mean pace between genders at each percentile
+gap_wide_df <- gap_df %>%
+  spread(gender, mean_pace) %>%
+  mutate(gap_gender = F - M) 
+
+kable(head(gap_wide_df))
+
+```
+
+```{r plot_gap, message = FALSE, warning = FALSE}
+
+gap_wide_df %>%
+  filter(pct_gender <= 80) %>%
+  ggplot(aes(x = pct_gender, y = gap_gender)) + theme_bw() +
+  geom_line() + 
+  expand_limits(y = 0) +
+  xlab('Percentile within gender') +
+  ylab('Gender gap (minutes/mile)') 
+
+```
+
+```{r}
+save(results_df, gap_wide_df, file = 'output/spartan_processed.rda')
+```
+
